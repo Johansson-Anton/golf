@@ -32,7 +32,7 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__f
 };
 // --- END Firebase Configuration ---
 
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? initialAuthToken : null;
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
 // Context for Firebase and User
 const FirebaseContext = createContext(null);
@@ -171,6 +171,8 @@ const App = () => {
                     {currentPage === 'scorecard' && currentGameId && <ScorecardPage gameId={currentGameId} navigateTo={navigateTo} />}
                     {currentPage === 'history' && <HistoryPage navigateTo={navigateTo} />}
                     {currentPage === 'about' && <AboutPage navigateTo={navigateTo} />}
+                    {currentPage === 'allCourses' && <AllCoursesPage navigateTo={navigateTo} />}
+                    {currentPage === 'addCourse' && <AddCoursePage navigateTo={navigateTo} />}
                 </div>
             </div>
         </FirebaseContext.Provider>
@@ -182,8 +184,9 @@ const HomePage = ({ navigateTo }) => {
     return (
         <div className="p-6 flex flex-col items-center justify-center h-full min-h-[500px]">
             <div className="mb-10 text-center">
-                <svg className="w-24 h-24 mx-auto text-green-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                {/* Google Fonts Material Design "Golf Course" icon */}
+                <svg className="w-24 h-24 mx-auto text-green-600 mb-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M17 5H7c-1.1 0-1.99.9-1.99 2L5 19c0 1.1.89 2 1.99 2H17c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-1 12H8v-2h8v2zm0-4H8V7h8v6zM7 6h10v2H7zM7 9h10v2H7zM7 12h10v2H7zM7 15h10v2H7z"></path>
                 </svg>
                 <h1 className="text-4xl font-extrabold text-gray-900 drop-shadow-md">Golf Scorecard</h1>
                 <p className="text-lg text-gray-600 mt-2">Track your rounds with ease!</p>
@@ -200,6 +203,12 @@ const HomePage = ({ navigateTo }) => {
                     className="w-full py-4 px-6 bg-blue-500 hover:bg-blue-600 text-white font-bold text-lg rounded-lg shadow-lg transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300"
                 >
                     <i className="fas fa-history mr-2"></i> History
+                </button>
+                <button
+                    onClick={() => navigateTo('allCourses')}
+                    className="w-full py-4 px-6 bg-purple-500 hover:bg-purple-600 text-white font-bold text-lg rounded-lg shadow-lg transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-purple-300"
+                >
+                    <i className="fas fa-golf-course mr-2"></i> Courses
                 </button>
                 <button
                     onClick={() => navigateTo('about')}
@@ -220,112 +229,72 @@ const NewGamePage = ({ navigateTo }) => {
     const [pin, setPin] = useState('');
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(false);
-    const [showParInput, setShowParInput] = useState(false);
-    const [parValues, setParValues] = useState(Array(18).fill(0)); // Initialize with 18 zeros
+    const [allCourseNames, setAllCourseNames] = useState([]); // Stores {id, name, parValues} of all courses
+    const [selectedCourse, setSelectedCourse] = useState(null); // Stores the matched course object
 
-    // Effect to check for existing course and load par values
+    // Effect to fetch all existing course names on component mount
     useEffect(() => {
-        const checkCourse = async () => {
-            if (!db || !courseName) {
-                setShowParInput(false); // Hide par input if no course name
-                setParValues(Array(18).fill(0)); // Reset par values
-                return;
-            }
-
-            setLoading(true);
-            setMessage('');
+        const fetchAllCourseNames = async () => {
+            if (!db) return;
             try {
-                const q = query(collection(db, `artifacts/${appId}/public/data/golf_courses`), where('name', '==', courseName));
+                const q = collection(db, `artifacts/${appId}/public/data/golf_courses`);
                 const querySnapshot = await getDocs(q);
-
-                if (!querySnapshot.empty) {
-                    // Course exists, load its par values
-                    const existingCourse = querySnapshot.docs[0].data();
-                    setParValues(existingCourse.parValues || Array(18).fill(0));
-                    setShowParInput(false); // No need to show input if loaded
-                    setMessage(`Course "${courseName}" found. Using its saved par values.`);
-                } else {
-                    // New course, prompt for par values
-                    setParValues(Array(18).fill(0)); // Reset for new input
-                    setShowParInput(true);
-                    setMessage(`Course "${courseName}" is new. Please enter par for each hole.`);
-                }
+                const names = querySnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name, parValues: doc.data().parValues }));
+                setAllCourseNames(names);
             } catch (error) {
-                console.error("Error checking course:", error);
-                setMessage('Error checking course. Please try again.');
-                setParValues(Array(18).fill(0));
-                setShowParInput(true); // Assume new if error checking
-            } finally {
-                setLoading(false);
+                console.error("Error fetching all course names:", error);
             }
         };
+        fetchAllCourseNames();
+    }, [db, appId]);
 
-        const handler = setTimeout(() => {
-            checkCourse();
-        }, 500); // Debounce course name input
+    // Effect to check for existing course and update selectedCourse (when courseName changes)
+    useEffect(() => {
+        if (!courseName) {
+            setSelectedCourse(null);
+            setMessage('');
+            return;
+        }
 
-        return () => clearTimeout(handler);
-    }, [courseName, db, appId]);
+        const matchedCourse = allCourseNames.find(
+            course => course.name.toLowerCase() === courseName.toLowerCase()
+        );
 
-    const handleParChange = (holeIndex, value) => {
-        const newPar = parseInt(value) || 0;
-        setParValues(prevPars => {
-            const updatedPars = [...prevPars];
-            updatedPars[holeIndex] = newPar;
-            return updatedPars;
-        });
-    };
+        if (matchedCourse) {
+            setSelectedCourse(matchedCourse);
+            setMessage(`Course "${matchedCourse.name}" found.`);
+        } else {
+            setSelectedCourse(null);
+            setMessage(`Course "${courseName}" not found. Please add new courses via the About tab.`);
+        }
+    }, [courseName, allCourseNames]);
 
     const handleCreateGame = async () => {
+        setLoading(true); // Start loading for the entire process
+        setMessage('');
+
         if (!db) {
             setMessage('Database not initialized. Cannot create game.');
+            setLoading(false);
             return;
         }
         if (!courseName) {
             setMessage('Please enter a course name.');
+            setLoading(false);
             return;
         }
         if (numPlayers < 1) {
             setMessage('Number of players must be at least 1.');
+            setLoading(false);
             return;
         }
-        // Validate par values if input is shown
-        if (showParInput && parValues.some(par => par <= 0)) {
-            setMessage('Please enter valid par values (greater than 0) for all 18 holes.');
+        if (!selectedCourse) {
+            setMessage('Please select an existing course from the list.');
+            setLoading(false);
             return;
         }
-
-        setLoading(true);
-        setMessage('');
 
         try {
-            // 1. Save/Update Course Information
-            let currentCourseId;
-            const q = query(collection(db, `artifacts/${appId}/public/data/golf_courses`), where('name', '==', courseName));
-            const querySnapshot = await getDocs(q);
-
-            if (querySnapshot.empty) {
-                // New course, add it to golf_courses collection
-                const newCourseRef = doc(collection(db, `artifacts/${appId}/public/data/golf_courses`));
-                currentCourseId = newCourseRef.id;
-                await setDoc(newCourseRef, {
-                    id: currentCourseId,
-                    name: courseName,
-                    parValues: parValues,
-                    createdAt: new Date().toISOString(),
-                    createdByUserId: userId,
-                });
-            } else {
-                // Existing course, use its ID and potentially update par values if they changed
-                const existingCourseDoc = querySnapshot.docs[0];
-                currentCourseId = existingCourseDoc.id;
-                // Optionally update existing course's par values if user modified them
-                if (JSON.stringify(existingCourseDoc.data().parValues) !== JSON.stringify(parValues)) {
-                     await updateDoc(existingCourseDoc.ref, { parValues: parValues });
-                }
-            }
-
-            // 2. Create Game Information
             const newGameId = generateUniqueId();
             const players = Array.from({ length: numPlayers }, (_, i) => ({
                 id: generateUniqueId(),
@@ -335,9 +304,9 @@ const NewGamePage = ({ navigateTo }) => {
 
             const gameData = {
                 gameId: newGameId,
-                courseName: courseName,
-                courseId: currentCourseId, // Link to the course document
-                parValues: parValues, // Store par values directly in game for historical accuracy
+                courseName: selectedCourse.name,
+                courseId: selectedCourse.id, // Link to the course document
+                parValues: selectedCourse.parValues, // Store par values directly in game for historical accuracy
                 date: new Date().toISOString().split('T')[0], // YYYY-MM-DD
                 pin: pin || null, // Store null if no PIN
                 players: players,
@@ -369,10 +338,22 @@ const NewGamePage = ({ navigateTo }) => {
                         type="text"
                         id="courseName"
                         value={courseName}
-                        onChange={(e) => setCourseName(e.target.value)}
+                        onChange={(e) => {
+                            setCourseName(e.target.value);
+                            // Clear selectedCourse immediately on input change
+                            setSelectedCourse(null);
+                        }}
                         className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 shadow-sm"
                         placeholder="e.g., Augusta National"
+                        list="course-suggestions" // Link to datalist for suggestions
                     />
+                    <datalist id="course-suggestions">
+                        {allCourseNames
+                            .filter(course => course.name.toLowerCase().includes(courseName.toLowerCase()))
+                            .map(course => (
+                                <option key={course.id} value={course.name} />
+                            ))}
+                    </datalist>
                 </div>
                 <div>
                     <label htmlFor="numPlayers" className="block text-sm font-medium text-gray-700 mb-1">Number of Players</label>
@@ -397,27 +378,6 @@ const NewGamePage = ({ navigateTo }) => {
                     />
                 </div>
 
-                {showParInput && (
-                    <div className="border border-dashed border-gray-300 p-4 rounded-lg bg-gray-50">
-                        <p className="text-sm font-medium text-gray-700 mb-3">Enter Par for each hole:</p>
-                        <div className="grid grid-cols-6 gap-2 text-center">
-                            {Array.from({ length: 18 }).map((_, i) => (
-                                <div key={i} className="flex flex-col items-center">
-                                    <label htmlFor={`par-hole-${i + 1}`} className="text-xs text-gray-600">H{i + 1}</label>
-                                    <input
-                                        type="number"
-                                        id={`par-hole-${i + 1}`}
-                                        value={parValues[i]}
-                                        onChange={(e) => handleParChange(i, e.target.value)}
-                                        className="w-10 p-1 border border-gray-300 rounded-md text-center text-sm focus:ring-blue-300 focus:border-blue-300"
-                                        min="0"
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
                 {message && (
                     <p className={`text-center text-sm ${message.includes('successfully') ? 'text-green-600' : 'text-red-600'}`}>
                         {message}
@@ -427,7 +387,7 @@ const NewGamePage = ({ navigateTo }) => {
             <div className="mt-6 space-y-3">
                 <button
                     onClick={handleCreateGame}
-                    disabled={loading}
+                    disabled={loading || !selectedCourse} // Disable if loading or no course is selected
                     className="w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-lg shadow-lg transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                     {loading ? (
@@ -915,7 +875,19 @@ const AboutPage = ({ navigateTo }) => {
                     Developed using React and powered by Firebase Firestore for data persistence.
                 </p>
             </div>
-            <div className="mt-6">
+            <div className="mt-6 space-y-3">
+                <button
+                    onClick={() => navigateTo('allCourses')}
+                    className="w-full py-3 px-6 bg-blue-500 hover:bg-blue-600 text-white font-bold text-lg rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300"
+                >
+                    All Courses
+                </button>
+                <button
+                    onClick={() => navigateTo('addCourse')}
+                    className="w-full py-3 px-6 bg-green-500 hover:bg-green-600 text-white font-bold text-lg rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-300"
+                >
+                    Add New Course
+                </button>
                 <button
                     onClick={() => navigateTo('home')}
                     className="w-full py-3 px-6 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold text-lg rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-200"
@@ -927,5 +899,324 @@ const AboutPage = ({ navigateTo }) => {
     );
 };
 
-export default App;
+// New component: AllCoursesPage
+const AllCoursesPage = ({ navigateTo }) => {
+    const { db, appId } = useContext(FirebaseContext);
+    const [courses, setCourses] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
 
+    useEffect(() => {
+        const fetchCourses = async () => {
+            if (!db) {
+                setError('Database not ready.');
+                setLoading(false);
+                return;
+            }
+            try {
+                const q = collection(db, `artifacts/${appId}/public/data/golf_courses`);
+                const querySnapshot = await getDocs(q);
+                const fetchedCourses = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setCourses(fetchedCourses.sort((a, b) => a.name.localeCompare(b.name))); // Sort alphabetically
+            } catch (err) {
+                console.error("Error fetching courses:", err);
+                setError('Failed to load courses.');
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchCourses();
+    }, [db, appId]);
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[500px] text-gray-700">
+                <svg className="animate-spin h-8 w-8 text-blue-500 mr-3" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Loading courses...
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="p-6 text-center text-red-600 min-h-[500px] flex flex-col justify-center items-center">
+                <p className="text-xl font-semibold mb-4">{error}</p>
+                <button
+                    onClick={() => navigateTo('home')}
+                    className="py-3 px-6 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg shadow-md"
+                >
+                    Back to Home
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-6 flex flex-col h-full min-h-[500px]">
+            <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">All Golf Courses</h2>
+            {courses.length === 0 ? (
+                <p className="text-center text-gray-600 text-lg flex-grow flex items-center justify-center">No courses added yet. Add a new course!</p>
+            ) : (
+                <ul className="space-y-3 flex-grow overflow-y-auto max-h-[calc(100vh-200px)]">
+                    {courses.map((course) => (
+                        <li key={course.id} className="bg-gray-50 p-4 rounded-lg shadow-sm">
+                            <p className="font-semibold text-lg text-gray-800">{course.name}</p>
+                            <p className="text-sm text-gray-500">
+                                Pars: {course.parValues ? course.parValues.join(', ') : 'N/A'}
+                            </p>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            <div className="mt-6 space-y-3">
+                <button
+                    onClick={() => navigateTo('addCourse')}
+                    className="w-full py-3 px-6 bg-green-500 hover:bg-green-600 text-white font-bold text-lg rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-300"
+                >
+                    Add New Course
+                </button>
+                <button
+                    onClick={() => navigateTo('home')}
+                    className="w-full py-3 px-6 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold text-lg rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-200"
+                >
+                    Back to Home
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// New component: AddCoursePage
+const AddCoursePage = ({ navigateTo }) => {
+    const { db, userId, appId } = useContext(FirebaseContext);
+    const [courseName, setCourseName] = useState('');
+    const [message, setMessage] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const [showParEntryModal, setShowParEntryModal] = useState(false);
+    const [currentHoleIndex, setCurrentHoleIndex] = useState(0); // 0-17 for 18 holes
+    const [tempParValues, setTempParValues] = useState(Array(18).fill(0)); // For collecting par values interactively
+
+    const handleParChange = (holeIndex, value) => {
+        const newPar = parseInt(value) || 0;
+        setTempParValues(prevPars => {
+            const updatedPars = [...prevPars];
+            updatedPars[holeIndex] = newPar;
+            return updatedPars;
+        });
+    };
+
+    const handleParSelection = (par) => {
+        setTempParValues(prevPars => {
+            const updatedPars = [...prevPars];
+            updatedPars[currentHoleIndex] = par;
+            return updatedPars;
+        });
+
+        if (currentHoleIndex < 17) {
+            setCurrentHoleIndex(prevIndex => prevIndex + 1);
+        } else {
+            setCurrentHoleIndex(18); // Signify summary mode
+        }
+    };
+
+    const handleParBack = () => {
+        if (currentHoleIndex > 0) {
+            setCurrentHoleIndex(prevIndex => prevIndex - 1);
+        }
+    };
+
+    const handleAddCourseFinal = async () => {
+        if (!db) {
+            setMessage('Database not initialized. Cannot add course.');
+            return;
+        }
+        if (!courseName) {
+            setMessage('Please enter a course name.');
+            return;
+        }
+        if (tempParValues.some(par => par <= 0)) {
+            setMessage('Please enter valid par values (greater than 0) for all 18 holes.');
+            return;
+        }
+
+        setLoading(true);
+        setMessage('');
+
+        try {
+            // Check if course name already exists (case-insensitive)
+            const q = query(collection(db, `artifacts/${appId}/public/data/golf_courses`), where('name', '==', courseName));
+            const querySnapshot = await getDocs(q);
+
+            if (!querySnapshot.empty) {
+                setMessage('A course with this name already exists. Please choose a different name or edit the existing course.');
+                setLoading(false);
+                return;
+            }
+
+            const newCourseRef = doc(collection(db, `artifacts/${appId}/public/data/golf_courses`));
+            await setDoc(newCourseRef, {
+                id: newCourseRef.id,
+                name: courseName,
+                parValues: tempParValues,
+                createdAt: new Date().toISOString(),
+                createdByUserId: userId,
+            });
+
+            setMessage('Course added successfully!');
+            setTimeout(() => navigateTo('allCourses'), 1500); // Go to all courses list after adding
+        } catch (error) {
+            console.error("Error adding course:", error);
+            setMessage('Failed to add course. Please try again.');
+        } finally {
+            setLoading(false);
+            setShowParEntryModal(false);
+        }
+    };
+
+    const handleStartParEntry = async () => {
+        if (!courseName.trim()) { // Ensure course name is not just whitespace
+            setMessage('Please enter a course name before adding pars.');
+            return;
+        }
+        setLoading(true);
+        setMessage('');
+        try {
+            // Check for existing course name (case-insensitive) before starting par entry
+            const q = query(collection(db, `artifacts/${appId}/public/data/golf_courses`), where('name', '==', courseName));
+            const querySnapshot = await getDocs(q);
+            if (!querySnapshot.empty) {
+                setMessage('A course with this name already exists. Please choose a different name.');
+                setLoading(false);
+                return;
+            }
+            setTempParValues(Array(18).fill(0));
+            setCurrentHoleIndex(0);
+            setShowParEntryModal(true);
+        } catch (error) {
+            console.error("Error checking course existence:", error);
+            setMessage('Error checking course. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="p-6 flex flex-col h-full min-h-[500px]">
+            <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">Add New Golf Course</h2>
+            <div className="space-y-4 flex-grow">
+                <div>
+                    <label htmlFor="addCourseName" className="block text-sm font-medium text-gray-700 mb-1">Course Name</label>
+                    <input
+                        type="text"
+                        id="addCourseName"
+                        value={courseName}
+                        onChange={(e) => setCourseName(e.target.value)}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                        placeholder="e.g., Pine Valley Golf Club"
+                    />
+                </div>
+                {message && (
+                    <p className={`text-center text-sm ${message.includes('successfully') ? 'text-green-600' : 'text-red-600'}`}>
+                        {message}
+                    </p>
+                )}
+            </div>
+            <div className="mt-6 space-y-3">
+                <button
+                    onClick={handleStartParEntry}
+                    disabled={loading || !courseName.trim()} // Disable if loading or course name is empty/whitespace
+                    className="w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-lg shadow-lg transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                    {loading ? (
+                        <svg className="animate-spin h-5 w-5 text-white mr-3" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    ) : (
+                        <i className="fas fa-plus-circle mr-2"></i>
+                    )}
+                    Add Pars for Holes
+                </button>
+                <button
+                    onClick={() => navigateTo('about')}
+                    className="w-full py-3 px-6 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold text-lg rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-200"
+                >
+                    Back to About
+                </button>
+            </div>
+
+            {/* Par Entry Modal (reused from NewGamePage logic) */}
+            {showParEntryModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm text-center flex flex-col items-center">
+                        {currentHoleIndex < 18 ? (
+                            <>
+                                <h3 className="text-3xl font-bold text-gray-900 mb-6">Hole {currentHoleIndex + 1}</h3>
+                                <div className="flex justify-center space-x-4 mb-8 w-full">
+                                    {[3, 4, 5].map(par => (
+                                        <button
+                                            key={par}
+                                            onClick={() => handleParSelection(par)}
+                                            className="w-24 h-24 bg-green-500 hover:bg-green-600 text-white font-extrabold text-3xl rounded-full shadow-lg transform transition duration-200 hover:scale-110 focus:outline-none focus:ring-4 focus:ring-green-300 flex items-center justify-center"
+                                        >
+                                            Par {par}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="mt-auto w-full">
+                                    <button
+                                        onClick={handleParBack}
+                                        disabled={currentHoleIndex === 0}
+                                        className="w-full py-2 px-4 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-200"
+                                    >
+                                        Back
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            // Par Summary Screen
+                            <>
+                                <h3 className="text-3xl font-bold text-gray-900 mb-6">Par Summary</h3>
+                                <div className="grid grid-cols-4 gap-2 text-center w-full max-h-60 overflow-y-auto mb-6 p-2 border rounded-lg bg-gray-50">
+                                    {tempParValues.map((par, i) => (
+                                        <div key={i} className="flex flex-col items-center">
+                                            <label htmlFor={`summary-par-hole-${i + 1}`} className="text-xs text-gray-600">H{i + 1}</label>
+                                            <input
+                                                type="number"
+                                                id={`summary-par-hole-${i + 1}`}
+                                                value={par}
+                                                onChange={(e) => handleParChange(i, e.target.value)}
+                                                className="w-12 p-1 border border-gray-300 rounded-md text-center text-sm focus:ring-blue-300 focus:border-blue-300"
+                                                min="0"
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="w-full space-y-3">
+                                    <button
+                                        onClick={handleAddCourseFinal}
+                                        className="w-full py-3 px-6 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-300"
+                                    >
+                                        Confirm & Add Course
+                                    </button>
+                                    <button
+                                        onClick={() => setCurrentHoleIndex(17)} // Go back to last hole for editing
+                                        className="w-full py-3 px-6 bg-gray-400 hover:bg-gray-500 text-white font-bold rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-300"
+                                    >
+                                        Back to Holes
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default App;
