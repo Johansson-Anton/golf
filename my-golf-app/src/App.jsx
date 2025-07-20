@@ -49,6 +49,33 @@ const App = () => {
     const [userId, setUserId] = useState(null);
     const [isAuthReady, setIsAuthReady] = useState(false);
 
+    // Array of golf-themed short texts/jokes for the tab title
+    const golfJokes = [
+        "Golf: A good walk ruined.",
+        "Lost your balls?",
+        "Fore!",
+        "It's all in the swing!",
+        "My putter's hot!",
+        "Chasing birdies...",
+        "Just tapped it in!",
+        "In the rough again.",
+        "Hole in fun!",
+        "Mastering the green.",
+    ];
+
+    // Effect to change the document title periodically
+    useEffect(() => {
+        let jokeIndex = 0;
+        const intervalId = setInterval(() => {
+            document.title = golfJokes[jokeIndex];
+            jokeIndex = (jokeIndex + 1) % golfJokes.length;
+        }, 5000); // Change every 5 seconds
+
+        // Clear the interval when the component unmounts
+        return () => clearInterval(intervalId);
+    }, []); // Empty dependency array means this runs once on mount and cleans up on unmount
+
+
     useEffect(() => {
         // Initialize Firebase only once
         // Check if firebaseConfig is actually populated and not using placeholder API key
