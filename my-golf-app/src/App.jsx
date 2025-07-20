@@ -5,8 +5,34 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, where
 
 // Global variables provided by the Canvas environment
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-golf-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+// --- IMPORTANT: Firebase Configuration for Deployment ---
+// When deploying to GitHub Pages (outside the Canvas environment),
+// the __firebase_config global variable is not available.
+// You need to replace the placeholder below with your actual Firebase project configuration.
+//
+// 1. Go to your Firebase project in the Firebase Console (console.firebase.google.com).
+// 2. Click on "Project settings" (the gear icon next to "Project overview").
+// 3. Under "Your apps", select the web app you've created (or create a new one).
+// 4. Copy the "Firebase SDK snippet" (choose the "Config" option).
+// 5. Paste the entire configuration object below, replacing the placeholder values.
+//    Make sure you replace ALL the "YOUR_..." strings with your actual values.
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+    // >>>>>>>>>>>>>> PASTE YOUR ACTUAL FIREBASE CONFIG HERE <<<<<<<<<<<<<<
+    // Example: This is what it should look like *after* you paste your actual config.
+    // Use the values you previously showed:
+    apiKey: "AIzaSyAoypftT4llVsGefrXo7PG-yRRO-H5EFD0",
+    authDomain: "golf-scorecard-app-af43f.firebaseapp.com",
+    projectId: "golf-scorecard-app-af43f",
+    storageBucket: "golf-scorecard-app-af43f.firebasestorage.app",
+    messagingSenderId: "383449671406",
+    appId: "1:383449671406:web:22dda6ebfdd1f1005d35ff",
+    // measurementId: "G-XXXXXXXXXX" // Only if you have Google Analytics enabled
+    // >>>>>>>>>>>>>> END OF YOUR FIREBASE CONFIG <<<<<<<<<<<<<<
+};
+// --- END Firebase Configuration ---
+
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? initialAuthToken : null;
 
 // Context for Firebase and User
 const FirebaseContext = createContext(null);
@@ -25,7 +51,8 @@ const App = () => {
 
     useEffect(() => {
         // Initialize Firebase only once
-        if (!db && Object.keys(firebaseConfig).length > 0) {
+        // Check if firebaseConfig is actually populated and not using placeholder API key
+        if (!db && Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey !== "AIzaSyB4_YOUR_ACTUAL_API_KEY_GOES_HERE") {
             try {
                 const app = initializeApp(firebaseConfig);
                 const firestoreDb = getFirestore(app);
@@ -47,8 +74,6 @@ const App = () => {
                         setUserId(generateUniqueId());
                     } finally {
                         // Ensure isAuthReady is set to true after sign-in attempt
-                        // This handles cases where onAuthStateChanged might be delayed
-                        // or not fire immediately after anonymous sign-in.
                         setIsAuthReady(true);
                     }
                 };
@@ -62,8 +87,6 @@ const App = () => {
                         // If no user, generate a random ID for anonymous use
                         setUserId(generateUniqueId());
                     }
-                    // This is also a good place to ensure auth state is ready,
-                    // especially if the initial signInUser() call didn't trigger it immediately.
                     setIsAuthReady(true);
                 });
 
@@ -74,8 +97,8 @@ const App = () => {
                 setUserId(generateUniqueId());
                 setIsAuthReady(true);
             }
-        } else if (!Object.keys(firebaseConfig).length) {
-            console.warn("Firebase config is missing. Running without database persistence.");
+        } else {
+            console.warn("Firebase config is missing or incomplete. Running without database persistence. Please add your Firebase config for deployment.");
             setUserId(generateUniqueId()); // Still need a userId for local operations or mock data
             setIsAuthReady(true);
         }
@@ -96,9 +119,11 @@ const App = () => {
         setCurrentGameId(id);
         if (id) {
             // Update URL without reloading
-            window.history.pushState({}, '', `/?gameId=${id}`);
+            // Use window.location.origin + base path + query param for shareable link
+            const baseUrl = window.location.origin + '/golf/'; // Assuming '/golf/' is your base path
+            window.history.pushState({}, '', `${baseUrl}?gameId=${id}`);
         } else {
-            window.history.pushState({}, '', '/');
+            window.history.pushState({}, '', '/golf/'); // Navigate back to base path
         }
     };
 
@@ -168,6 +193,61 @@ const NewGamePage = ({ navigateTo }) => {
     const [pin, setPin] = useState('');
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showParInput, setShowParInput] = useState(false);
+    const [parValues, setParValues] = useState(Array(18).fill(0)); // Initialize with 18 zeros
+
+    // Effect to check for existing course and load par values
+    useEffect(() => {
+        const checkCourse = async () => {
+            if (!db || !courseName) {
+                setShowParInput(false); // Hide par input if no course name
+                setParValues(Array(18).fill(0)); // Reset par values
+                return;
+            }
+
+            setLoading(true);
+            setMessage('');
+            try {
+                const q = query(collection(db, `artifacts/${appId}/public/data/golf_courses`), where('name', '==', courseName));
+                const querySnapshot = await getDocs(q);
+
+                if (!querySnapshot.empty) {
+                    // Course exists, load its par values
+                    const existingCourse = querySnapshot.docs[0].data();
+                    setParValues(existingCourse.parValues || Array(18).fill(0));
+                    setShowParInput(false); // No need to show input if loaded
+                    setMessage(`Course "${courseName}" found. Using its saved par values.`);
+                } else {
+                    // New course, prompt for par values
+                    setParValues(Array(18).fill(0)); // Reset for new input
+                    setShowParInput(true);
+                    setMessage(`Course "${courseName}" is new. Please enter par for each hole.`);
+                }
+            } catch (error) {
+                console.error("Error checking course:", error);
+                setMessage('Error checking course. Please try again.');
+                setParValues(Array(18).fill(0));
+                setShowParInput(true); // Assume new if error checking
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const handler = setTimeout(() => {
+            checkCourse();
+        }, 500); // Debounce course name input
+
+        return () => clearTimeout(handler);
+    }, [courseName, db, appId]);
+
+    const handleParChange = (holeIndex, value) => {
+        const newPar = parseInt(value) || 0;
+        setParValues(prevPars => {
+            const updatedPars = [...prevPars];
+            updatedPars[holeIndex] = newPar;
+            return updatedPars;
+        });
+    };
 
     const handleCreateGame = async () => {
         if (!db) {
@@ -182,11 +262,43 @@ const NewGamePage = ({ navigateTo }) => {
             setMessage('Number of players must be at least 1.');
             return;
         }
+        // Validate par values if input is shown
+        if (showParInput && parValues.some(par => par <= 0)) {
+            setMessage('Please enter valid par values (greater than 0) for all 18 holes.');
+            return;
+        }
 
         setLoading(true);
         setMessage('');
 
         try {
+            // 1. Save/Update Course Information
+            let currentCourseId;
+            const q = query(collection(db, `artifacts/${appId}/public/data/golf_courses`), where('name', '==', courseName));
+            const querySnapshot = await getDocs(q);
+
+            if (querySnapshot.empty) {
+                // New course, add it to golf_courses collection
+                const newCourseRef = doc(collection(db, `artifacts/${appId}/public/data/golf_courses`));
+                currentCourseId = newCourseRef.id;
+                await setDoc(newCourseRef, {
+                    id: currentCourseId,
+                    name: courseName,
+                    parValues: parValues,
+                    createdAt: new Date().toISOString(),
+                    createdByUserId: userId,
+                });
+            } else {
+                // Existing course, use its ID and potentially update par values if they changed
+                const existingCourseDoc = querySnapshot.docs[0];
+                currentCourseId = existingCourseDoc.id;
+                // Optionally update existing course's par values if user modified them
+                if (JSON.stringify(existingCourseDoc.data().parValues) !== JSON.stringify(parValues)) {
+                     await updateDoc(existingCourseDoc.ref, { parValues: parValues });
+                }
+            }
+
+            // 2. Create Game Information
             const newGameId = generateUniqueId();
             const players = Array.from({ length: numPlayers }, (_, i) => ({
                 id: generateUniqueId(),
@@ -197,6 +309,8 @@ const NewGamePage = ({ navigateTo }) => {
             const gameData = {
                 gameId: newGameId,
                 courseName: courseName,
+                courseId: currentCourseId, // Link to the course document
+                parValues: parValues, // Store par values directly in game for historical accuracy
                 date: new Date().toISOString().split('T')[0], // YYYY-MM-DD
                 pin: pin || null, // Store null if no PIN
                 players: players,
@@ -255,6 +369,28 @@ const NewGamePage = ({ navigateTo }) => {
                         placeholder="e.g., 1234"
                     />
                 </div>
+
+                {showParInput && (
+                    <div className="border border-dashed border-gray-300 p-4 rounded-lg bg-gray-50">
+                        <p className="text-sm font-medium text-gray-700 mb-3">Enter Par for each hole:</p>
+                        <div className="grid grid-cols-6 gap-2 text-center">
+                            {Array.from({ length: 18 }).map((_, i) => (
+                                <div key={i} className="flex flex-col items-center">
+                                    <label htmlFor={`par-hole-${i + 1}`} className="text-xs text-gray-600">H{i + 1}</label>
+                                    <input
+                                        type="number"
+                                        id={`par-hole-${i + 1}`}
+                                        value={parValues[i]}
+                                        onChange={(e) => handleParChange(i, e.target.value)}
+                                        className="w-10 p-1 border border-gray-300 rounded-md text-center text-sm focus:ring-blue-300 focus:border-blue-300"
+                                        min="0"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {message && (
                     <p className={`text-center text-sm ${message.includes('successfully') ? 'text-green-600' : 'text-red-600'}`}>
                         {message}
@@ -314,11 +450,16 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                 setGameData(data);
                 setLoading(false);
 
-                // Check if PIN is required
-                if (data.pin && data.createdByUserId !== userId && !canEdit) {
-                    setShowPinModal(true);
+                // Determine if user can edit:
+                // 1. If no PIN is set, or
+                // 2. If the current user created the game, or
+                // 3. If the user has already successfully entered the PIN (canEdit is true)
+                if (!data.pin || data.createdByUserId === userId || canEdit) {
+                    setCanEdit(true);
+                    setShowPinModal(false); // Hide modal if already editable
                 } else {
-                    setCanEdit(true); // Allow editing if no PIN or creator or already authenticated
+                    setCanEdit(false); // Ensure editing is off if PIN is required and not met
+                    setShowPinModal(true); // Show modal if PIN is required and not creator/already edited
                 }
             } else {
                 setError('Game not found.');
@@ -400,14 +541,18 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
     const calculateTotal = (scores) => scores.reduce((sum, score) => sum + score, 0);
 
     const handleCopyLink = () => {
-        const link = window.location.href;
-        document.execCommand('copy'); // Fallback for clipboard API in iframes
-        // A more robust way would be to create a temporary input element, select its content, and then copy
+        // Construct the full shareable URL
+        // window.location.origin gives "https://johansson-anton.github.io"
+        // '/golf/' is your repository's base path
+        // ?gameId=${gameId} adds the specific game ID as a query parameter
+        const shareableLink = `${window.location.origin}/golf/?gameId=${gameId}`;
+
+        // Create a temporary textarea element to copy the text
         const el = document.createElement('textarea');
-        el.value = link;
+        el.value = shareableLink;
         document.body.appendChild(el);
         el.select();
-        document.execCommand('copy');
+        document.execCommand('copy'); // Fallback for clipboard API in iframes
         document.body.removeChild(el);
         alertMessage('Link copied to clipboard!', 'success');
     };
@@ -420,6 +565,12 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
         } else {
             setPinError('Incorrect PIN. Please try again.');
         }
+    };
+
+    const handleViewOnly = () => {
+        setCanEdit(false); // Explicitly set to view-only mode
+        setShowPinModal(false);
+        setPinError('');
     };
 
     const [alertMsg, setAlertMsg] = useState({ message: '', type: '' });
@@ -492,18 +643,26 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                             placeholder="Enter PIN"
                         />
                         {pinError && <p className="text-red-500 text-sm mb-3">{pinError}</p>}
-                        <button
-                            onClick={handlePinSubmit}
-                            className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300"
-                        >
-                            Submit PIN
-                        </button>
-                        <button
-                            onClick={() => navigateTo('home')}
-                            className="w-full py-3 px-6 mt-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-200"
-                        >
-                            Back to Home
-                        </button>
+                        <div className="space-y-3 mt-4">
+                            <button
+                                onClick={handlePinSubmit}
+                                className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300"
+                            >
+                                Submit PIN
+                            </button>
+                            <button
+                                onClick={handleViewOnly}
+                                className="w-full py-3 px-6 bg-gray-400 hover:bg-gray-500 text-white font-bold rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-300"
+                            >
+                                View Only
+                            </button>
+                            <button
+                                onClick={() => navigateTo('home')}
+                                className="w-full py-3 px-6 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-200"
+                            >
+                                Back to Home
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -512,7 +671,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-10 w-28">Player</th>
+                            <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-10 w-28"></th> {/* Empty header for player name column */}
                             {Array.from({ length: 18 }).map((_, i) => (
                                 <th key={i} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
                                     Hole {i + 1}
@@ -523,6 +682,20 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
+                        {/* Par Row */}
+                        <tr>
+                            <td className="px-2 py-2 whitespace-nowrap sticky left-0 bg-white z-10 font-bold text-gray-700 w-28">Par</td>
+                            {gameData.parValues && gameData.parValues.map((par, i) => (
+                                <td key={`par-${i}`} className="px-2 py-2 whitespace-nowrap text-center font-semibold text-gray-800">
+                                    {par}
+                                </td>
+                            ))}
+                            <td className="px-2 py-2 whitespace-nowrap font-bold text-center text-gray-900 w-16">
+                                {gameData.parValues ? calculateTotal(gameData.parValues) : '-'}
+                            </td>
+                            <td className="px-2 py-2 whitespace-nowrap text-center w-16"></td> {/* Empty cell for actions column */}
+                        </tr>
+                        {/* Player Rows */}
                         {gameData.players.map((player, playerIndex) => (
                             <tr key={player.id}>
                                 <td className="px-2 py-2 whitespace-nowrap sticky left-0 bg-white z-10 w-28">
@@ -582,6 +755,14 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                 >
                     <i className="fas fa-share-alt mr-2"></i> Share Link
                 </button>
+                {!canEdit && ( // Only show EDIT button if not currently editable
+                    <button
+                        onClick={() => setShowPinModal(true)}
+                        className="flex-1 py-3 px-6 bg-yellow-500 hover:bg-yellow-600 text-white font-bold text-lg rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-yellow-300"
+                    >
+                        <i className="fas fa-edit mr-2"></i> EDIT
+                    </button>
+                )}
                 <button
                     onClick={() => navigateTo('home')}
                     className="flex-1 py-3 px-6 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold text-lg rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-200"
@@ -596,25 +777,30 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
 
 // History Page Component
 const HistoryPage = ({ navigateTo }) => {
-    const { db, userId, appId } = useContext(FirebaseContext);
+    const { db, appId } = useContext(FirebaseContext);
     const [games, setGames] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
     useEffect(() => {
         const fetchGames = async () => {
-            if (!db || !userId) {
-                setError('Database or User ID not ready.');
+            if (!db) {
+                setError('Database not ready.');
                 setLoading(false);
                 return;
             }
 
             try {
-                // Query for games created by the current user ID
-                const q = query(collection(db, `artifacts/${appId}/public/data/golf_games`), where('createdByUserId', '==', userId));
+                // Query for ALL games in the public collection
+                const q = query(
+                    collection(db, `artifacts/${appId}/public/data/golf_games`)
+                );
                 const querySnapshot = await getDocs(q);
-                const fetchedGames = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                setGames(fetchedGames.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))); // Sort by most recent
+                let fetchedGames = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                // Sort by createdAt (most recent first) and limit to last 10
+                fetchedGames.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                setGames(fetchedGames.slice(0, 10)); // Limit to last 10 games
             } catch (err) {
                 console.error("Error fetching history:", err);
                 setError('Failed to load game history.');
@@ -624,7 +810,7 @@ const HistoryPage = ({ navigateTo }) => {
         };
 
         fetchGames();
-    }, [db, userId]);
+    }, [db, appId]);
 
     if (loading) {
         return (
@@ -656,15 +842,21 @@ const HistoryPage = ({ navigateTo }) => {
         <div className="p-6 flex flex-col h-full min-h-[500px]">
             <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">Game History</h2>
             {games.length === 0 ? (
-                <p className="text-center text-gray-600 text-lg flex-grow flex items-center justify-center">No games found for this user ID. Start a new game!</p>
+                <p className="text-center text-gray-600 text-lg flex-grow flex items-center justify-center">No games found. Start a new game!</p>
             ) : (
                 <ul className="space-y-3 flex-grow overflow-y-auto max-h-[calc(100vh-200px)]">
                     {games.map((game) => (
-                        <li key={game.gameId} className="bg-gray-50 p-4 rounded-lg shadow-sm hover:shadow-md transition duration-200 cursor-pointer"
-                            onClick={() => navigateTo('scorecard', game.gameId)}>
-                            <p className="font-semibold text-lg text-gray-800">{game.courseName}</p>
-                            <p className="text-sm text-gray-500">Date: {game.date}</p>
-                            <p className="text-sm text-gray-500">Players: {game.players.length}</p>
+                        <li
+                            key={game.gameId}
+                            className="bg-gray-50 p-4 rounded-lg shadow-sm hover:shadow-md transition duration-200 cursor-pointer flex justify-between items-center"
+                            onClick={() => navigateTo('scorecard', game.gameId)}
+                        >
+                            <div>
+                                <p className="font-semibold text-lg text-gray-800">{game.courseName}</p>
+                                <p className="text-sm text-gray-500">Date: {game.date}</p>
+                                <p className="text-sm text-gray-500">Players: {game.players.length}</p>
+                            </div>
+                            <i className="fas fa-chevron-right text-gray-400"></i>
                         </li>
                     ))}
                 </ul>
