@@ -48,6 +48,8 @@ const App = () => {
     const [auth, setAuth] = useState(null);
     const [userId, setUserId] = useState(null);
     const [isAuthReady, setIsAuthReady] = useState(false);
+	
+    // Removed numPlayers and playerOptions from App component as they are handled in NewGamePage
 
     // Array of golf-themed short texts/jokes for the tab title
     const golfJokes = [
@@ -78,58 +80,62 @@ const App = () => {
 
     useEffect(() => {
         // Initialize Firebase only once
-        // Check if firebaseConfig is actually populated and not using placeholder API key
-        if (!db && Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey !== "AIzaSyB4_YOUR_ACTUAL_API_KEY_GOES_HERE") {
-            try {
-                const app = initializeApp(firebaseConfig);
-                const firestoreDb = getFirestore(app);
-                const firebaseAuth = getAuth(app);
-                setDb(firestoreDb);
-                setAuth(firebaseAuth);
+        // Check if db is not already set and auth is not yet ready
+        if (!db && !isAuthReady) {
+            // Check if firebaseConfig is actually populated and not using placeholder API key
+            const isFirebaseConfigValid = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey !== "AIzaSyB4_YOUR_ACTUAL_API_KEY_GOES_HERE";
 
-                // Sign in anonymously or with custom token
-                const signInUser = async () => {
-                    try {
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(firebaseAuth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(firebaseAuth);
+            if (isFirebaseConfigValid) {
+                try {
+                    const app = initializeApp(firebaseConfig);
+                    const firestoreDb = getFirestore(app);
+                    const firebaseAuth = getAuth(app);
+                    setDb(firestoreDb);
+                    setAuth(firebaseAuth);
+
+                    const signInUser = async () => {
+                        try {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(firebaseAuth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(firebaseAuth);
+                            }
+                        } catch (error) {
+                            console.error("Firebase authentication failed:", error);
+                            // Fallback to a random UUID if auth fails completely
+                            setUserId(generateUniqueId());
+                        } finally {
+                            setIsAuthReady(true); // Always set auth ready after attempt
                         }
-                    } catch (error) {
-                        console.error("Firebase authentication failed:", error);
-                        // Fallback to a random UUID if auth fails completely
-                        setUserId(generateUniqueId());
-                    } finally {
-                        // Ensure isAuthReady is set to true after sign-in attempt
-                        setIsAuthReady(true);
-                    }
-                };
-                signInUser();
+                    };
+                    signInUser();
 
-                // Listen for auth state changes to get the user ID
-                const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
-                    if (user) {
-                        setUserId(user.uid);
-                    } else {
-                        // If no user, generate a random ID for anonymous use
-                        setUserId(generateUniqueId());
-                    }
+                    // Listen for auth state changes to get the user ID
+                    const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+                        if (user) {
+                            setUserId(user.uid);
+                        } else {
+                            // If no user, generate a random ID for anonymous use
+                            setUserId(generateUniqueId());
+                        }
+                        setIsAuthReady(true); // Ensure this is also set for auth state changes
+                    });
+
+                    return () => unsubscribe(); // Cleanup auth listener
+                } catch (error) {
+                    console.error("Failed to initialize Firebase:", error);
+                    // If Firebase initialization fails, set a random userId and mark auth as ready
+                    setUserId(generateUniqueId());
                     setIsAuthReady(true);
-                });
-
-                return () => unsubscribe(); // Cleanup auth listener
-            } catch (error) {
-                console.error("Failed to initialize Firebase:", error);
-                // If Firebase initialization fails, set a random userId and mark auth as ready
-                setUserId(generateUniqueId());
-                setIsAuthReady(true);
+                }
+            } else {
+                console.warn("Firebase config is missing or incomplete. Running without database persistence. Please add your Firebase config for deployment.");
+                setUserId(generateUniqueId()); // Still need a userId for local operations or mock data
+                setIsAuthReady(true); // Mark auth ready even if Firebase is not fully configured
+                // db will remain null, which NewGamePage should handle
             }
-        } else {
-            console.warn("Firebase config is missing or incomplete. Running without database persistence. Please add your Firebase config for deployment.");
-            setUserId(generateUniqueId()); // Still need a userId for local operations or mock data
-            setIsAuthReady(true);
         }
-    }, [db, initialAuthToken]); // Only run once on component mount
+    }, [db, isAuthReady, initialAuthToken]); // Added isAuthReady to dependencies to avoid re-running if already ready
 
     // Handle URL parameters for direct game access
     useEffect(() => {
@@ -225,28 +231,48 @@ const HomePage = ({ navigateTo }) => {
 const NewGamePage = ({ navigateTo }) => {
     const { db, userId, appId } = useContext(FirebaseContext);
     const [courseName, setCourseName] = useState('');
-    const [numPlayers, setNumPlayers] = useState(1);
+    const [numPlayers, setNumPlayers] = useState(1); // State for number of players, default to 1
     const [pin, setPin] = useState('');
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(false);
     const [allCourseNames, setAllCourseNames] = useState([]); // Stores {id, name, parValues} of all courses
     const [selectedCourse, setSelectedCourse] = useState(null); // Stores the matched course object
+    const [loadingCourses, setLoadingCourses] = useState(true); // New state for course loading
+    const [courseError, setCourseError] = useState(''); // New state for course fetching errors
+
+    // Array of player options for the buttons
+    const playerOptions = [1, 2, 3, 4];
 
     // Effect to fetch all existing course names on component mount
     useEffect(() => {
         const fetchAllCourseNames = async () => {
-            if (!db) return;
+            setLoadingCourses(true); // Always set loading to true at the start of fetch
+            setCourseError(''); // Clear previous errors
+
+            if (!db) {
+                // If db is null, it means Firebase wasn't initialized or failed in App.js
+                setCourseError('Database connection not available. Please ensure Firebase is correctly configured and initialized.');
+                setLoadingCourses(false);
+                return;
+            }
             try {
                 const q = collection(db, `artifacts/${appId}/public/data/golf_courses`);
                 const querySnapshot = await getDocs(q);
                 const names = querySnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name, parValues: doc.data().parValues }));
                 setAllCourseNames(names);
+                // No need to clear error here, as it's cleared at the beginning of the function
             } catch (error) {
                 console.error("Error fetching all course names:", error);
+                setCourseError('Failed to load courses. Please check your Firebase configuration and security rules. Error: ' + error.message);
+            } finally {
+                setLoadingCourses(false);
             }
         };
+        // This useEffect should run whenever 'db' or 'appId' changes.
+        // If 'db' becomes available, it will fetch.
+        // If 'db' is null from the start, it will immediately set the error state.
         fetchAllCourseNames();
-    }, [db, appId]);
+    }, [db, appId]); // Depend on 'db' and 'appId'
 
     // Effect to check for existing course and update selectedCourse (when courseName changes)
     useEffect(() => {
@@ -328,6 +354,33 @@ const NewGamePage = ({ navigateTo }) => {
         }
     };
 
+    if (loadingCourses) {
+        return (
+            <div className="p-6 flex flex-col items-center justify-center h-full min-h-[500px] text-gray-700">
+                <svg className="animate-spin h-8 w-8 text-blue-500 mr-3" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Loading courses...
+            </div>
+        );
+    }
+
+    if (courseError) {
+        return (
+            <div className="p-6 flex flex-col items-center justify-center h-full min-h-[500px] text-red-600 text-center">
+                <p className="text-xl font-semibold mb-4">{courseError}</p>
+                <p className="text-md mb-4">Please ensure your Firebase configuration is correct in `firebaseConfig` within the `App` component, and that you have added some courses via the "About" tab.</p>
+                <button
+                    onClick={() => navigateTo('home')}
+                    className="py-3 px-6 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg shadow-md"
+                >
+                    Back to Home
+                </button>
+            </div>
+        );
+    }
+
     return (
         <div className="p-6 flex flex-col h-full min-h-[500px]">
             <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">Start a New Game</h2>
@@ -356,15 +409,37 @@ const NewGamePage = ({ navigateTo }) => {
                     </datalist>
                 </div>
                 <div>
-                    <label htmlFor="numPlayers" className="block text-sm font-medium text-gray-700 mb-1">Number of Players</label>
-                    <input
-                        type="number"
-                        id="numPlayers"
-                        value={numPlayers}
-                        onChange={(e) => setNumPlayers(Math.max(1, parseInt(e.target.value) || 1))}
-                        min="1"
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 shadow-sm"
-                    />
+					<label htmlFor="numPlayers" className="block text-lg font-semibold text-gray-800 mb-4 text-center">
+						Number of Players
+					</label>
+					{/* Container for the player selection buttons */}
+					<div className="flex justify-center space-x-4">
+						{/* Map over the playerOptions array to create a button for each number */}
+						{playerOptions.map((playerNum) => (
+							<button
+								key={playerNum} // Unique key for each button in the list
+								type="button" // Specify type as button to prevent form submission
+								onClick={() => setNumPlayers(playerNum)} // Update state on click
+								className={`
+								px-6 py-3 rounded-full text-lg font-bold transition-all duration-200 ease-in-out
+								focus:outline-none focus:ring-4 focus:ring-blue-300 focus:ring-opacity-75
+								${
+									numPlayers === playerNum
+									? 'bg-blue-600 text-white shadow-xl transform scale-105' // Highlighted style
+									: 'bg-gray-200 text-gray-700 hover:bg-gray-300 hover:shadow-md' // Default style
+								}
+						`}
+					aria-pressed={numPlayers === playerNum} // ARIA attribute for accessibility
+					aria-label={`Select ${playerNum} players`} // ARIA label for screen readers
+					>
+				{playerNum}
+						</button>
+					))}
+				</div>
+                {/* Display the currently selected number of players for immediate feedback */}
+                <p className="mt-4 text-center text-gray-600 text-md">
+                    Selected players: <span className="font-bold text-blue-700">{numPlayers}</span>
+                </p>
                 </div>
                 <div>
                     <label htmlFor="pin" className="block text-sm font-medium text-gray-700 mb-1">PIN (Optional, for shared editing)</label>
