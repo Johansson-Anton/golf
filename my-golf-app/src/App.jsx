@@ -325,7 +325,7 @@ const NewGamePage = ({ navigateTo }) => {
             const players = Array.from({ length: numPlayers }, (_, i) => ({
                 id: generateUniqueId(),
                 name: `Player ${i + 1}`,
-                scores: Array(18).fill(0), // 18 holes, initialized to 0
+                scores: Array(18).fill(''), // Changed from 0 to ''
             }));
 
             const gameData = {
@@ -539,7 +539,8 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
     const handleScoreChange = async (playerIndex, holeIndex, value) => {
         if (!canEdit || !gameData || !db) return;
 
-        const newScore = parseInt(value) || 0;
+        // Convert empty string to 0 for calculation, but store as empty string if input is empty
+        const newScore = value === '' ? '' : parseInt(value) || 0; 
         const updatedPlayers = [...gameData.players];
         updatedPlayers[playerIndex].scores[holeIndex] = newScore;
 
@@ -562,7 +563,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
             const gameDocRef = doc(collection(db, `artifacts/${appId}/public/data/golf_games`), gameId);
             await updateDoc(gameDocRef, { players: updatedPlayers });
         } catch (err) {
-            console.error("Error updating player name:", err);
+                console.error("Error updating player name:", err);
             setError('Failed to update player name.');
         }
     };
@@ -573,7 +574,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
         const newPlayer = {
             id: generateUniqueId(),
             name: `Player ${gameData.players.length + 1}`,
-            scores: Array(18).fill(0),
+            scores: Array(18).fill(''), // Changed from 0 to ''
         };
         const updatedPlayers = [...gameData.players, newPlayer];
 
@@ -600,7 +601,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
         }
     };
 
-    const calculateTotal = (scores) => scores.reduce((sum, score) => sum + score, 0);
+    const calculateTotal = (scores) => scores.reduce((sum, score) => sum + (score === '' ? 0 : score), 0); // Handle empty strings in calculation
 
     const handleCopyLink = () => {
         // Construct the full shareable URL
@@ -721,7 +722,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                             <button
                                 onClick={() => navigateTo('home')}
                                 className="w-full py-3 px-6 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold rounded-lg shadow-md transform transition duration-200 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-gray-200"
-                            >
+                                >
                                 Back to Home
                             </button>
                         </div>
@@ -733,10 +734,10 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-10 w-28"></th> {/* Empty header for player name column */}
+                            <th className="px-2 py-2 whitespace-nowrap sticky left-0 bg-white z-10 font-bold text-gray-700 w-60">Hole  #</th>
                             {Array.from({ length: 18 }).map((_, i) => (
                                 <th key={i} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
-                                    Hole {i + 1}
+                                    {i + 1}
                                 </th>
                             ))}
                             <th className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Total</th>
@@ -746,7 +747,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                     <tbody className="bg-white divide-y divide-gray-200">
                         {/* Par Row */}
                         <tr>
-                            <td className="px-2 py-2 whitespace-nowrap sticky left-0 bg-white z-10 font-bold text-gray-700 w-28">Par</td>
+                            <td className="px-2 py-2 whitespace-nowrap sticky left-0 bg-white z-10 font-bold text-gray-700 w-60">Par</td> {/* Increased width to w-60 */}
                             {gameData.parValues && gameData.parValues.map((par, i) => (
                                 <td key={`par-${i}`} className="px-2 py-2 whitespace-nowrap text-center font-semibold text-gray-800">
                                     {par}
@@ -760,7 +761,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                         {/* Player Rows */}
                         {gameData.players.map((player, playerIndex) => (
                             <tr key={player.id}>
-                                <td className="px-2 py-2 whitespace-nowrap sticky left-0 bg-white z-10 w-28">
+                                <td className="px-2 py-2 whitespace-nowrap sticky left-0 bg-white z-10 w-60"> {/* Increased width to w-60 */}
                                     <input
                                         type="text"
                                         value={player.name}
@@ -773,7 +774,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                                     <td key={holeIndex} className="px-2 py-2 whitespace-nowrap text-center">
                                         <input
                                             type="number"
-                                            value={score}
+                                            value={score} // Will be '' for empty fields
                                             onChange={(e) => handleScoreChange(playerIndex, holeIndex, e.target.value)}
                                             readOnly={!canEdit}
                                             className={`w-12 p-1 border rounded-md text-center ${canEdit ? 'border-gray-300 focus:ring-blue-300 focus:border-blue-300' : 'border-transparent bg-transparent'}`}
@@ -781,10 +782,10 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                                         />
                                     </td>
                                 ))}
-                                <td className="px-2 py-2 whitespace-nowrap font-bold text-center text-gray-900 w-16">
+                                <td className="px-2 py-2 whitespace-nowrap font-bold text-center text-gray-900 w-12">
                                     {calculateTotal(player.scores)}
                                 </td>
-                                <td className="px-2 py-2 whitespace-nowrap text-center w-16">
+                                <td className="px-2 py-2 whitespace-nowrap text-center w-12">
                                     {canEdit && gameData.players.length > 1 && (
                                         <button
                                             onClick={() => handleDeletePlayer(playerIndex)}
