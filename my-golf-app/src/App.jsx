@@ -192,7 +192,11 @@ const HomePage = ({ navigateTo }) => {
             <div className="mb-10 text-center">
                 {/* Google Fonts Material Design "Golf Course" icon */}
                 <svg className="w-24 h-24 mx-auto text-green-600 mb-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M17 5H7c-1.1 0-1.99.9-1.99 2L5 19c0 1.1.89 2 1.99 2H17c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-1 12H8v-2h8v2zm0-4H8V7h8v6zM7 6h10v2H7zM7 9h10v2H7zM7 12h10v2H7zM7 15h10v2H7z"></path>
+					<g id="golf" transform="translate(0 0)">
+						<path id="secondary" fill="#00A000" d="M12,4v6l6-3Z"/>
+						<path id="primary" d="M12,13c-3.31,0-6,1.79-6,4s2.69,4,6,4,6-1.79,6-4a3.59,3.59,0,0,0-2-3" fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>
+						<path id="primary-2" data-name="primary" d="M12,3V17M12,4v6l6-3Z" fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>
+					</g>
                 </svg>
                 <h1 className="text-4xl font-extrabold text-gray-900 drop-shadow-md">Golf Scorecard</h1>
                 <p className="text-lg text-gray-600 mt-2">Track your rounds with ease!</p>
