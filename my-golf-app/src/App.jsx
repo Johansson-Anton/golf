@@ -70,56 +70,53 @@ const App = () => {
 
 
     useEffect(() => {
-        // Initialize Firebase only once
-        if (!db && !isAuthReady) {
-            const isFirebaseConfigValid = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("YOUR_");
+        const isFirebaseConfigValid = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("YOUR_");
 
-            if (isFirebaseConfigValid) {
-                try {
-                    const app = initializeApp(firebaseConfig);
-                    const firestoreDb = getFirestore(app);
-                    const firebaseAuth = getAuth(app);
-                    setDb(firestoreDb);
-                    setAuth(firebaseAuth);
+        if (isFirebaseConfigValid) {
+            try {
+                const app = initializeApp(firebaseConfig);
+                const firestoreDb = getFirestore(app);
+                const firebaseAuth = getAuth(app);
+                setDb(firestoreDb);
+                setAuth(firebaseAuth);
 
-                    const signInUser = async () => {
-                        try {
-                            if (initialAuthToken) {
-                                await signInWithCustomToken(firebaseAuth, initialAuthToken);
-                            } else {
-                                await signInAnonymously(firebaseAuth);
-                            }
-                        } catch (error) {
-                            console.error("Firebase authentication failed:", error);
-                            setUserId(generateUniqueId());
-                        } finally {
-                            setIsAuthReady(true);
-                        }
-                    };
-                    signInUser();
-
-                    const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
-                        if (user) {
-                            setUserId(user.uid);
+                const signInUser = async () => {
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(firebaseAuth, initialAuthToken);
                         } else {
-                            setUserId(generateUniqueId());
+                            await signInAnonymously(firebaseAuth);
                         }
-                        setIsAuthReady(true);
-                    });
+                    } catch (error) {
+                        console.error("Firebase authentication failed:", error);
+                        // Do not set userId here. Let onAuthStateChanged handle it.
+                    }
+                };
+                signInUser();
 
-                    return () => unsubscribe();
-                } catch (error) {
-                    console.error("Failed to initialize Firebase:", error);
-                    setUserId(generateUniqueId());
+                // This listener will be called when the sign-in is complete
+                const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+                    if (user) {
+                        setUserId(user.uid);
+                    } else {
+                        setUserId(generateUniqueId());
+                    }
+                    // This is the key change: only set auth ready once we have a user state
                     setIsAuthReady(true);
-                }
-            } else {
-                console.warn("Firebase config is missing or incomplete. Running without database persistence.");
+                });
+
+                return () => unsubscribe();
+            } catch (error) {
+                console.error("Failed to initialize Firebase:", error);
                 setUserId(generateUniqueId());
                 setIsAuthReady(true);
             }
+        } else {
+            console.warn("Firebase config is missing or incomplete. Running without database persistence.");
+            setUserId(generateUniqueId());
+            setIsAuthReady(true);
         }
-    }, [db, isAuthReady, initialAuthToken]);
+    }, []); // <-- Changed dependency array to empty
 
     // Handle URL parameters for direct game access
     useEffect(() => {
@@ -433,6 +430,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
     const [enteredPin, setEnteredPin] = useState('');
     const [pinError, setPinError] = useState('');
     const [canEdit, setCanEdit] = useState(false);
+    const [isCreator, setIsCreator] = useState(false);
 
     useEffect(() => {
         if (!db || !gameId) {
@@ -447,15 +445,18 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
                 setGameData(data);
-                setLoading(false);
+                
+                const creator = data.createdByUserId === userId;
+                setIsCreator(creator);
 
-                if (!data.pin || data.createdByUserId === userId || canEdit) {
+                if (creator || !data.pin) {
                     setCanEdit(true);
                     setShowPinModal(false);
-                } else {
-                    setCanEdit(false);
+                } else if (!canEdit) {
                     setShowPinModal(true);
                 }
+                setLoading(false);
+
             } else {
                 setError('Game not found.');
                 setLoading(false);
@@ -467,7 +468,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
         });
 
         return () => unsubscribe();
-    }, [db, gameId, userId, canEdit, appId]);
+    }, [db, gameId, userId, appId]);
 
     const handleScoreChange = async (playerIndex, holeIndex, value) => {
         if (!canEdit || !gameData || !db) return;
