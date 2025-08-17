@@ -70,3 +70,13 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-color: #111827; /* Dark background for dark mode */
+        --card-bg: #1f2937; /* Darker gray background for card in dark mode */
+        --text-color: #e5e7eb; /* Light gray text for dark mode */
+        --input-bg: #111827; /* Dark background for input in dark mode */
+        --input-text: #e5e7eb; /* Light gray text for input in dark mode */
+        --input-border: #4b5563; /* Darker border for input in dark mode */
+    }
+}

@@ -738,7 +738,7 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="px-2 py-2 whitespace-nowrap sticky left-0 bg-white z-10 font-bold text-gray-700 w-60">Hole  #</th>
+                            <th className="px-2 py-2 whitespace-nowrap sticky left-0 bg-gray-50 z-10 font-bold text-gray-700 w-60">Hole  #</th>
                             {Array.from({ length: 18 }).map((_, i) => (
                                 <th key={i} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
                                     {i + 1}
