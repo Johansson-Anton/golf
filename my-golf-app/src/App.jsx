@@ -419,7 +419,6 @@ const NewGamePage = ({ navigateTo }) => {
     );
 };
 
-
 // Scorecard Page Component
 const ScorecardPage = ({ gameId, navigateTo }) => {
     const { db, userId, appId } = useContext(FirebaseContext);
@@ -449,12 +448,10 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
                 const creator = data.createdByUserId === userId;
                 setIsCreator(creator);
 
-                if (creator || !data.pin) {
-                    setCanEdit(true);
-                    setShowPinModal(false);
-                } else if (!canEdit) {
-                    setShowPinModal(true);
-                }
+                // Set initial editing capability based on creator status, no PIN, or if user's ID is in the editorUserIds list
+                const isEditor = data.editorUserIds?.includes(userId) || false;
+                setCanEdit(creator || !data.pin || isEditor);
+
                 setLoading(false);
 
             } else {
@@ -543,11 +540,19 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
         alertMessage('Link copied to clipboard!', 'success');
     };
 
-    const handlePinSubmit = () => {
+    const handlePinSubmit = async () => {
         if (enteredPin === gameData.pin) {
-            setCanEdit(true);
-            setShowPinModal(false);
-            setPinError('');
+            try {
+                const gameDocRef = doc(db, `artifacts/${appId}/public/data/golf_games`, gameId);
+                const updatedEditorIds = [...(gameData.editorUserIds || []), userId];
+                await updateDoc(gameDocRef, { editorUserIds: updatedEditorIds });
+                setCanEdit(true);
+                setShowPinModal(false);
+                setPinError('');
+            } catch (err) {
+                console.error("Error updating editor list:", err);
+                setPinError('Failed to grant edit access.');
+            }
         } else {
             setPinError('Incorrect PIN.');
         }
@@ -632,14 +637,14 @@ const ScorecardPage = ({ gameId, navigateTo }) => {
 
             <div className="flex flex-col sm:flex-row gap-3">
                 <button onClick={handleCopyLink} className="flex-1 py-3 px-6 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-lg">Share Link</button>
-                {!canEdit && <button onClick={() => setShowPinModal(true)} className="flex-1 py-3 px-6 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-lg">EDIT</button>}
+                {/* Updated: Only show EDIT button if a PIN exists and the user is not the creator, and they don't already have edit access */}
+                {gameData.pin && !isCreator && !canEdit && <button onClick={() => setShowPinModal(true)} className="flex-1 py-3 px-6 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-lg">EDIT</button>}
                 <button onClick={() => navigateTo('home')} className="flex-1 py-3 px-6 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold rounded-lg">Back to Home</button>
             </div>
             <p className="text-center text-xs text-gray-500 mt-4">User ID: {userId}</p>
         </div>
     );
 };
-
 
 // History Page Component
 const HistoryPage = ({ navigateTo }) => {
@@ -872,9 +877,11 @@ const AddCoursePage = ({ navigateTo }) => {
                                 <div className="flex justify-center space-x-4 mb-8">
                                     {[3, 4, 5].map(par => <button key={par} onClick={() => handleParSelection(par)} className="w-24 h-24 bg-green-500 hover:bg-green-600 text-white font-extrabold text-2xl rounded-full">Par {par}</button>)}
                                 </div>
+					            <div className="mt-6 space-y-3">
                                 <button onClick={() => setCurrentHoleIndex(Math.max(0, currentHoleIndex - 1))} disabled={currentHoleIndex === 0} className="w-full py-2 bg-gray-300 rounded-lg disabled:opacity-50">Previous hole</button>
 								<button onClick={() => navigateTo('about')} className="w-full py-2 bg-red-300 rounded-lg ">Exit</button>
-                            </>
+								</div>
+							</>
                         ) : (
                             <>
                                 <h3 className="text-3xl font-bold mb-6">Par Summary</h3>
